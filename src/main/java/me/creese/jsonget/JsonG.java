@@ -19,7 +19,6 @@ package me.creese.jsonget;
 import me.creese.jsonget.annotation.JsonField;
 import me.creese.jsonget.annotation.UseConstructor;
 import me.creese.jsonget.annotation.UseMethod;
-import me.creese.jsonget.exceptions.JsonFormatError;
 
 import java.lang.reflect.*;
 import java.util.*;
@@ -30,6 +29,8 @@ public class JsonG {
     private boolean isOnlyPublic;
     private boolean isPretty;
     private int tabNum;
+    private StringBuilder builder;
+    private int indexTochar;
 
     public JsonG() {
         fabricJson = new StringBuilder();
@@ -163,188 +164,125 @@ public class JsonG {
 
         boolean isFirstBrace = false;
         boolean startRead = false;
+        builder = new StringBuilder();
+        Map<Object, Object> rootMap = generateRoot(chars);
 
-        StringBuilder builder = new StringBuilder();
-
-        ArrayList<String> strings = new ArrayList<>();
-
-        int deep = 0;
-        int deepArray = 0;
-
-
-        for (int i = 0; i < chars.length; i++) {
-            if (chars[i] == '{') {
-                deep++;
-                continue;
-            }
-           /* if (chars[i] == '}') {
-                deep--;
-            }*/
-
-            if (chars[i] == '[') {
-                deepArray++;
-                continue;
-            }
-
-            if (chars[i] == ']') {
-                deepArray--;
-                if(deepArray == 0)
-                continue;
-            }
-
-            if (deep > 0) {
-
-                if (chars[i] == ',' || chars[i] == '}') {
-                    if (deepArray == 0) {
-                        String str = builder.toString();
-
-                        //strings.add(builder.toString());
-
-                        String[] spl = str.split(":");
-
-
-                        spl[0] = spl[0].replace("\"", "");
-                        Field field = null;
-                        try {
-                            field = classInstance.getDeclaredField(spl[0]);
-                        } catch (NoSuchFieldException e) {
-                            e.printStackTrace();
+        for (Map.Entry<Object, Object> entry : rootMap.entrySet()) {
+            Field field = null;
+            try {
+                field = classInstance.getDeclaredField(String.valueOf(entry.getKey()));
+            } catch (NoSuchFieldException e) {
+                for (Field field1 : classInstance.getDeclaredFields()) {
+                    if (field1.isAnnotationPresent(JsonField.class)) {
+                        if(field1.getAnnotation(JsonField.class).name().equals(entry.getKey())) {
+                            field = field1;
+                            break;
                         }
-                        if (spl[1].contains("\"")) {
-                            spl[1] = spl[1].replace("\"", "");
-                            if (spl[1].contains(",")) {
-                                if(spl[1].contains("]")) {
-                                    String[][] arr = null;
-                                    String[] tmp = spl[1].split("]");
-
-                                    for (int i1 = 0; i1 < tmp.length; i1++) {
-
-                                        String[] ts = tmp[i1].split(",");
-                                        if(arr == null) {
-                                            arr = new String[tmp.length][ts.length];
-                                        }
-                                        arr[i1] = ts;
-
-                                    }
-                                    try {
-                                        field.set(instance, arr);
-                                    } catch (IllegalAccessException e) {
-                                        e.printStackTrace();
-                                    }
-                                }
-                                else {
-                                    String[] arr = spl[1].split(",");
-                                    try {
-                                        field.set(instance, arr);
-                                    } catch (IllegalAccessException e) {
-                                        e.printStackTrace();
-                                    }
-                                }
-
-                            }
-                            else {
-                                try {
-                                    field.set(instance, spl[1]);
-                                } catch (IllegalAccessException e) {
-                                    e.printStackTrace();
-                                }
-                            }
-                        } else {
-                            if (spl[1].contains(",")) {
-                                String[] arr = spl[1].split(",");
-                                Integer[] iarr = new Integer[arr.length];
-                                for (int i1 = 0; i1 < iarr.length; i1++) {
-                                    iarr[i1] = Integer.valueOf(arr[i1]);
-                                }
-                                try {
-                                    field.set(instance, iarr);
-                                } catch (IllegalAccessException e) {
-                                    e.printStackTrace();
-                                }
-
-                            } else {
-                                try {
-                                    field.set(instance, Integer.valueOf(spl[1]));
-                                } catch (IllegalAccessException e) {
-                                    e.printStackTrace();
-                                }
-                            }
-                        }
-
-
-                        builder = new StringBuilder();
-                        continue;
                     }
-
                 }
-
-
-                if (chars[i] != 10 && chars[i] != 9 && chars[i] != 13 && chars[i] != 32) {
-                    builder.append(chars[i]);
-                }
-
 
             }
 
+            try {
+                field.set(instance, entry.getValue());
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
+
+    }
+
+    private Map generateRoot(char[] chars) {
+        builder = new StringBuilder();
+        Map<Object, Object> tmp = null;
+        for (; indexTochar < chars.length; indexTochar++) {
+            if (chars[indexTochar] == '{') {
+                if (tmp != null) {
+                    //System.out.println(builder);
+                    tmp.put(builder.toString().replaceAll("\"", "").replaceAll(":", ""), generateRoot(chars));
+                    //System.out.println(tmp);
+                    indexTochar++;
+                    continue;
+                }
+
+                tmp = new LinkedHashMap();
+                continue;
+            }
+
+            if (chars[indexTochar] == '[') {
+
+                tmp.put(builder.toString().replaceAll("\"", "").replaceAll(":", ""), generateArray(chars));
+                //System.out.println(tmp);
+                builder = new StringBuilder();
+                indexTochar++;
+                continue;
+            }
+
+            if (chars[indexTochar] == ',' || chars[indexTochar] == '}') {
+                String[] str = builder.toString().split(":");
+
+
+                Object val = null;
+                Object key = null;
+                if (!str[0].contains("\"")) {
+                    key = Integer.valueOf(str[0]);
+                } else {
+                    key = str[0].replaceAll("\"", "");
+                }
+
+                if (!str[1].contains("\"")) {
+                    val = Integer.valueOf(str[1]);
+                } else {
+                    val = str[1].replaceAll("\"", "");
+                }
+                tmp.put(key, val);
+
+
+                builder = new StringBuilder();
+                if (chars[indexTochar] == '}') return tmp;
+                continue;
+            }
+
+            if (tmp != null) {
+                appendChar(chars[indexTochar]);
+            }
 
         }
 
+        return tmp;
+    }
 
+    private Object generateArray(char[] chars) {
 
-        /*for (int i = 0; i < chars.length; i++) {
-            if (chars[i] == '{') isFirstBrace = true;
-            if (chars[i] == '"' || chars[i] == ':') {
-                if (!isFirstBrace) throw new JsonFormatError("Don't find \"{\"");
+        indexTochar++;
+        builder = new StringBuilder();
+        for (; indexTochar < chars.length; indexTochar++) {
 
-                if(i > 0 && ch)
+            if (chars[indexTochar] == ']') break;
+            builder.append(chars[indexTochar]);
+        }
+        String str = builder.toString();
 
-                startRead = !startRead;
-                if (startRead)
-                    continue;
+        if(str.contains("\"")) {
+            return str.replaceAll("\"","").split(",");
+        }
+        else {
+            String[] arrs = str.split(",");
+            Object[] retArr = new Object[arrs.length];
+
+            for (int i = 0; i < retArr.length; i++) {
+                retArr[i] = Integer.valueOf(arrs[i]);
             }
-
-            if (startRead) {
-                builder.append(chars[i]);
-
-            } else {
-                if (builder.length() > 0) {
-                    if (field == null) {
-                        try {
-                            field = classInstance.getDeclaredField(builder.toString());
-                            builder = new StringBuilder();
-                        } catch (NoSuchFieldException e) {
-                            e.printStackTrace();
-                        }
-                    } else {
-                        try {
-                            if (chars[i-(builder.length()+1)] == '\"') {
-                                field.set(instance, builder.toString());
-                            } else {
-                                System.out.println(builder);
-                                if (builder.toString().equals("true")) {
-                                    field.set(instance, true);
-                                } else if (builder.toString().equals("false")) {
-                                    field.set(instance, false);
-                                } else if (builder.toString().equals("null")) {
-                                    field.set(instance, null);
-                                } else if (builder.indexOf(".") != -1) {
-                                    field.set(instance, Float.valueOf(builder.toString()));
-                                } else {
-                                    field.set(instance, Integer.valueOf(builder.toString()));
-                                }
-
-                            }
-
-                            field = null;
-                            builder = new StringBuilder();
-                        } catch (IllegalAccessException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                }
-            }*/
+            return retArr;
+        }
 
 
+    }
+
+    private void appendChar(char aChar) {
+        if (aChar != 10 && aChar != 9 && aChar != 13 && aChar != 32) {
+            builder.append(aChar);
+        }
     }
 
     private void printBody(Map<Object, Object> mapValues) {
