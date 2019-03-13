@@ -30,7 +30,7 @@ public class JsonG {
     private boolean isPretty;
     private int tabNum;
     private StringBuilder builder;
-    private int indexTochar;
+    private int index;
 
     public JsonG() {
         fabricJson = new StringBuilder();
@@ -38,7 +38,7 @@ public class JsonG {
         tabNum = 0;
     }
 
-    public <T> T fromJson(String jsonString, Class castClass) {
+    public <T> T fromJson(String jsonString, Class<T> castClass) {
         Object instance = null;
         Constructor[] constructors = castClass.getConstructors();
         if (constructors.length > 1) {
@@ -60,7 +60,7 @@ public class JsonG {
         parseJson(instance, jsonString, castClass);
 
 
-        return (T) castClass.cast(instance);
+        return castClass.cast(instance);
     }
 
     private Object createInstance(Constructor constructor, Class castClass) {
@@ -165,7 +165,7 @@ public class JsonG {
         boolean isFirstBrace = false;
         boolean startRead = false;
         builder = new StringBuilder();
-        Map<Object, Object> rootMap = generateRoot(chars);
+        /*Map<Object, Object> rootMap = generateRoot(chars);
 
         for (Map.Entry<Object, Object> entry : rootMap.entrySet()) {
             Field field = null;
@@ -188,95 +188,166 @@ public class JsonG {
             } catch (IllegalAccessException e) {
                 e.printStackTrace();
             }
-        }
+        }*/
 
     }
 
-    private Map generateRoot(char[] chars) {
-        builder = new StringBuilder();
-        Map<Object, Object> tmp = null;
-        for (; indexTochar < chars.length; indexTochar++) {
-            if (chars[indexTochar] == '{') {
-                if (tmp != null) {
-                    //System.out.println(builder);
-                    tmp.put(builder.toString().replaceAll("\"", "").replaceAll(":", ""), generateRoot(chars));
-                    //System.out.println(tmp);
-                    indexTochar++;
-                    continue;
-                }
+    private JsonEntity generateRoot(char[] chars) {
 
-                tmp = new LinkedHashMap();
-                continue;
+
+        while (index < chars.length) {
+            char currChar = chars[index];
+
+            if (currChar == '[') {
+
+                index++;
+                return readArray(chars);
             }
+            if (currChar == '{') {
 
-            if (chars[indexTochar] == '[') {
-
-                tmp.put(builder.toString().replaceAll("\"", "").replaceAll(":", ""), generateArray(chars));
-                //System.out.println(tmp);
-                builder = new StringBuilder();
-                indexTochar++;
-                continue;
-            }
-
-            if (chars[indexTochar] == ',' || chars[indexTochar] == '}') {
-                String[] str = builder.toString().split(":");
-
-
-                Object val = null;
-                Object key = null;
-                if (!str[0].contains("\"")) {
-                    key = Integer.valueOf(str[0]);
-                } else {
-                    key = str[0].replaceAll("\"", "");
-                }
-
-                if (!str[1].contains("\"")) {
-                    val = Integer.valueOf(str[1]);
-                } else {
-                    val = str[1].replaceAll("\"", "");
-                }
-                tmp.put(key, val);
-
-
-                builder = new StringBuilder();
-                if (chars[indexTochar] == '}') return tmp;
-                continue;
-            }
-
-            if (tmp != null) {
-                appendChar(chars[indexTochar]);
+                index++;
+                return readObject(chars);
             }
 
         }
 
-        return tmp;
+        return null;
     }
 
-    private Object generateArray(char[] chars) {
+    private JsonEntity readArray(char[] chars) {
+        StringBuilder sb = new StringBuilder();
+        JsonArray jsonArray = new JsonArray();
 
-        indexTochar++;
-        builder = new StringBuilder();
-        for (; indexTochar < chars.length; indexTochar++) {
+        while (index < chars.length) {
+            char currChar = chars[index];
 
-            if (chars[indexTochar] == ']') break;
-            builder.append(chars[indexTochar]);
-        }
-        String str = builder.toString();
 
-        if(str.contains("\"")) {
-            return str.replaceAll("\"","").split(",");
-        }
-        else {
-            String[] arrs = str.split(",");
-            Object[] retArr = new Object[arrs.length];
+            switch (currChar) {
+                case '[':
+                    index++;
+                    jsonArray.add(readArray(chars));
+                    break;
 
-            for (int i = 0; i < retArr.length; i++) {
-                retArr[i] = Integer.valueOf(arrs[i]);
+                case '{':
+                    index++;
+                    jsonArray.add(readObject(chars));
+                    break;
+                case ']':
+                    String s = sb.toString();
+                    String[] split = s.split(",");
+
+                    for (int i = 0; i < split.length; i++) {
+                        if(!split[i].equals(""))
+                            jsonArray.add(new JsonEntity(split[i]));
+                    }
+                    return jsonArray;
+                default:
+                    if (currChar != '\n' && currChar != ' ' && currChar != '"') {
+                        sb.append(currChar);
+                    }
+
             }
-            return retArr;
+            index++;
+
         }
+        return jsonArray;
+    }
+
+    private JsonEntity readObject(char[] chars) {
+        StringBuilder sb = new StringBuilder();
+        JsonObject jsonObject = new JsonObject();
+
+        while (index < chars.length) {
+            char currChar = chars[index];
+
+            switch (currChar) {
+                case '[':
 
 
+                    if (index > 0) {
+                        StringBuilder str = new StringBuilder();
+                        for (int i = index; i >= 0; i--) {
+                            char ch = chars[i];
+
+                            if (ch == ',' || ch == '{'){
+                                sb = sb.deleteCharAt(sb.length()-1);
+                                break;
+                            }
+                            if (ch != ':' && ch != '"' && ch != '\n' && ch != ' ' && ch != '[') {
+                                str.append(ch);
+
+                                sb = sb.deleteCharAt(sb.length()-1);
+                            }
+
+                        }
+
+                        if(sb.length() > 0) {
+                            if (sb.charAt(sb.length() - 1) == ',') {
+                                sb = sb.deleteCharAt(sb.length() - 1);
+                            }
+                        }
+                        index++;
+                        JsonEntity value = readArray(chars);
+                        jsonObject.addField(str.reverse().toString(), value);
+
+
+                    }
+                    break;
+
+                case '{':
+                    if (index > 0) {
+                        StringBuilder str = new StringBuilder();
+                        for (int i = index; i >= 0; i--) {
+                            char ch = chars[i];
+
+                            if (ch == ','){
+                                sb = sb.deleteCharAt(sb.length()-1);
+                                break;
+                            }
+                            if (ch != ':' && ch != '"' && ch != '\n' && ch != ' ' && ch != '['&& ch != '{' ) {
+                                str.append(ch);
+
+                                sb = sb.deleteCharAt(sb.length()-1);
+                            }
+
+                        }
+
+                        if(sb.length() > 0) {
+                            if (sb.charAt(sb.length() - 1) == ',') {
+                                sb = sb.deleteCharAt(sb.length() - 1);
+                            }
+                        }
+                        index++;
+                        JsonEntity value = readObject(chars);
+                        jsonObject.addField(str.reverse().toString(), value);
+
+
+                    }
+                    break;
+                case '}':
+                    String s = sb.toString();
+                    String[] split = s.split(",");
+
+                    for (int i = 0; i < split.length; i++) {
+
+                        if(!split[i].equals("")) {
+                            String[] pair = split[i].split(":");
+
+                            jsonObject.addField(pair[0], new JsonEntity(pair[1]));
+                        }
+                    }
+                    return jsonObject;
+                default:
+                    if (currChar != '\n' && currChar != ' ' && currChar != '"') {
+                        sb.append(currChar);
+                    }
+
+            }
+
+            index++;
+
+        }
+        return jsonObject;
     }
 
     private void appendChar(char aChar) {
